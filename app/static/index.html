@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Northstar One AI Assistant</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <main class="container">
+    <section class="chat-card">
+      <header class="header">
+        <div>
+          <h1>Northstar One</h1>
+          <p>AI Sales Assistant · Sector 79, Gurugram</p>
+        </div>
+        <button id="resetBtn" class="secondary">New Chat</button>
+      </header>
+
+      <div id="messages" class="messages"></div>
+
+      <div class="composer">
+        <textarea
+          id="input"
+          rows="2"
+          placeholder="Ask about Northstar One..."
+        ></textarea>
+        <button id="sendBtn">Send</button>
+      </div>
+    </section>
+
+    <aside class="analytics-card">
+      <div class="analytics-header">
+        <h2>Lead Analytics</h2>
+        <button id="analyticsBtn" class="secondary">Refresh</button>
+      </div>
+      <pre id="analytics">Start a conversation to see analytics.</pre>
+    </aside>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
