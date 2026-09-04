@@ -15,6 +15,29 @@ function addMessage(text, role) {
   messages.scrollTop = messages.scrollHeight;
 }
 
+function showLoader() {
+  const loader = document.createElement("div");
+  loader.className = "bubble bot typing";
+  loader.id = "typingLoader";
+
+  loader.innerHTML = `
+    <span></span>
+    <span></span>
+    <span></span>
+  `;
+
+  messages.appendChild(loader);
+  messages.scrollTop = messages.scrollHeight;
+}
+
+function hideLoader() {
+  const loader = document.getElementById("typingLoader");
+
+  if (loader) {
+    loader.remove();
+  }
+}
+
 function setLoading(loading) {
   sendBtn.disabled = loading;
   input.disabled = loading;
@@ -29,7 +52,9 @@ async function send() {
 
   addMessage(message, "user");
   input.value = "";
+
   setLoading(true);
+  showLoader();
 
   let conversationEnded = false;
 
@@ -57,6 +82,8 @@ async function send() {
       );
     }
 
+    hideLoader();
+
     addMessage(
       data.reply || "No response received.",
       "bot"
@@ -70,6 +97,8 @@ async function send() {
 
   } catch (err) {
     console.error("Chat error:", err);
+
+    hideLoader();
 
     addMessage(
       `Sorry, something went wrong: ${err.message}`,
@@ -126,6 +155,8 @@ async function resetConversation() {
   } catch (err) {
     console.error("Reset error:", err);
   }
+
+  hideLoader();
 
   sessionId = crypto.randomUUID();
 
