@@ -12,7 +12,14 @@ from .schemas import LeadState, Session
 
 class BookingSimulator:
     def book(self, date: str, time: str) -> dict[str, Any]:
-        if "fail" in f"{date} {time}".lower() or time == "00:00":
+
+        if time == "00:00":
+            return {
+                "success": False,
+                "reason": "The requested slot is unavailable.",
+            }
+
+        if "fail" in f"{date} {time}".lower():
             return {
                 "success": False,
                 "reason": "The requested slot is unavailable.",
@@ -27,6 +34,7 @@ class BookingSimulator:
 
 
 class ConversationService:
+
     def __init__(self):
         self.sessions: dict[str, Session] = {}
         self.booking = BookingSimulator()
@@ -39,6 +47,7 @@ class ConversationService:
         self.client = genai.Client(api_key=GEMINI_API_KEY)
 
     def get_session(self, session_id: str) -> Session:
+
         if session_id not in self.sessions:
             self.sessions[session_id] = Session()
 
@@ -48,6 +57,7 @@ class ConversationService:
         self.sessions.pop(session_id, None)
 
     def _extract_name(self, text: str) -> str | None:
+
         patterns = [
             r"\bmy name is ([a-zA-Z][a-zA-Z ]{1,30})",
             r"\bi am ([a-zA-Z][a-zA-Z ]{1,30})",
@@ -55,9 +65,15 @@ class ConversationService:
         ]
 
         for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
+
+            match = re.search(
+                pattern,
+                text,
+                re.IGNORECASE,
+            )
 
             if match:
+
                 name = match.group(1).strip()
 
                 name = re.split(
@@ -77,6 +93,7 @@ class ConversationService:
         lead: LeadState,
         text: str,
     ):
+
         lower = text.lower()
 
         if re.search(r"\b2\s*bhk\b", lower):
@@ -136,10 +153,13 @@ class ConversationService:
 
             if "tomorrow" in lower:
                 lead.follow_up_time = "tomorrow"
+
             elif "next week" in lower:
                 lead.follow_up_time = "next week"
+
             elif "next month" in lower:
                 lead.follow_up_time = "next month"
+
             else:
                 lead.follow_up_time = "later"
 
@@ -155,7 +175,8 @@ class ConversationService:
                 "visit the property",
             ]
         ):
-            lead.site_visit_status = "requested"
+            if lead.site_visit_status == "not_requested":
+                lead.site_visit_status = "requested"
 
         if any(
             phrase in lower
@@ -203,12 +224,12 @@ class ConversationService:
             lead.interest_level = "medium"
 
         crore = re.search(
-            r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*(?:crore|cr)\b",
+            r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*(?:crores?|cr)\b",
             lower,
         )
 
         lakh = re.search(
-            r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*(?:lakh|lac)\b",
+            r"(?:₹|rs\.?|inr)?\s*(\d+(?:\.\d+)?)\s*(?:lakhs?|lacs?|lac)\b",
             lower,
         )
 
@@ -218,7 +239,11 @@ class ConversationService:
         elif lakh:
             lead.budget = f"₹{lakh.group(1)} lakh"
 
-    def _lead_context(self, lead: LeadState) -> str:
+    def _lead_context(
+        self,
+        lead: LeadState,
+    ) -> str:
+
         return f"""
 CURRENT LEAD MEMORY
 
@@ -228,7 +253,11 @@ Budget: {lead.budget or "Unknown"}
 Location preference: {lead.location_preference or "Unknown"}
 Purchase timeline: {lead.purchase_timeline or "Unknown"}
 Interest level: {lead.interest_level}
+
 Site visit status: {lead.site_visit_status}
+Requested visit date: {lead.requested_visit_date or "Unknown"}
+Requested visit time: {lead.requested_visit_time or "Unknown"}
+
 Follow-up required: {lead.follow_up_required}
 Follow-up time: {lead.follow_up_time or "Unknown"}
 Human escalation: {lead.human_escalation}
@@ -238,21 +267,21 @@ Use this information as reliable conversation memory.
 
 Do not ask again for information that is already known.
 
-If the user has selected a configuration, acknowledge it and provide the
-verified starting price before asking about budget, unless the user is
-already asking a different question.
+If configuration and budget are known, use both when responding.
 
-If the user has provided both configuration and budget, discuss those
-together and compare the budget with the verified starting price.
+If a site visit date and time are already known and the application has
+confirmed the booking, treat the booking status as authoritative.
 """
 
     def _conversation_for_gemini(
         self,
         session: Session,
     ):
+
         contents = []
 
         for message in session.messages[-20:]:
+
             role = (
                 "user"
                 if message["role"] == "user"
@@ -278,7 +307,9 @@ together and compare the budget with the verified starting price.
         application_context: str | None = None,
     ) -> str:
 
-        contents = self._conversation_for_gemini(session)
+        contents = self._conversation_for_gemini(
+            session
+        )
 
         system_instruction = (
             SYSTEM_PROMPT
@@ -287,6 +318,7 @@ together and compare the budget with the verified starting price.
         )
 
         if application_context:
+
             system_instruction += (
                 "\n\nAPPLICATION CONTEXT:\n"
                 + application_context
@@ -297,7 +329,10 @@ together and compare the budget with the verified starting price.
             contents=contents,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
-                max_output_tokens=500,
+                max_output_tokens=300,
+                thinking_config=types.ThinkingConfig(
+                    thinking_level="minimal"
+                ),
             ),
         )
 
@@ -310,6 +345,47 @@ together and compare the budget with the verified starting price.
 
         return reply
 
+    def _extract_visit_datetime(
+        self,
+        text: str,
+    ) -> tuple[str | None, str | None]:
+
+        date_match = re.search(
+            r"\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2})\b",
+            text,
+        )
+
+        time_match = re.search(
+            r"\b(\d{1,2}):(\d{2})\s*(am|pm)?\b",
+            text.lower(),
+        )
+
+        date = None
+        time = None
+
+        if date_match:
+
+            date = date_match.group(1).replace(
+                "/",
+                "-",
+            )
+
+        if time_match:
+
+            hour = int(time_match.group(1))
+            minute = int(time_match.group(2))
+            meridiem = time_match.group(3)
+
+            if meridiem == "pm" and hour < 12:
+                hour += 12
+
+            elif meridiem == "am" and hour == 12:
+                hour = 0
+
+            time = f"{hour:02d}:{minute:02d}"
+
+        return date, time
+
     def _maybe_booking_context(
         self,
         session: Session,
@@ -318,77 +394,76 @@ together and compare the budget with the verified starting price.
 
         lead = session.lead
 
-        if lead.site_visit_status != "requested":
-            return None
-
-        date_match = re.search(
-            r"\b(20\d{2}[-/]\d{1,2}[-/]\d{1,2})\b",
-            text,
+        date, time = self._extract_visit_datetime(
+            text
         )
 
-        time_match = re.search(
-            r"\b(\d{1,2}:\d{2})\s*(am|pm)?\b",
-            text.lower(),
-        )
+        if date:
+            lead.requested_visit_date = date
 
-        if not date_match or not time_match:
+        if time:
+            lead.requested_visit_time = time
+
+        if date or time:
+
+            if lead.site_visit_status == "not_requested":
+                lead.site_visit_status = "requested"
+
+        requested_date = lead.requested_visit_date
+        requested_time = lead.requested_visit_time
+
+        if not requested_date or not requested_time:
             return None
 
-        date = date_match.group(1).replace("/", "-")
-        time = time_match.group(1)
+        if lead.site_visit_status == "booked":
+            return None
 
-        meridiem = time_match.group(2)
-
-        if meridiem:
-            hour, minute = map(int, time.split(":"))
-
-            if meridiem == "pm" and hour < 12:
-                hour += 12
-
-            if meridiem == "am" and hour == 12:
-                hour = 0
-
-            time = f"{hour:02d}:{minute:02d}"
-
-        # Validate date format
         try:
-            requested_date = datetime.strptime(
-                date,
+
+            requested_date_obj = datetime.strptime(
+                requested_date,
                 "%Y-%m-%d",
             ).date()
+
         except ValueError:
-            return (
-                "APPLICATION BOOKING RESULT: FAILED. "
-                "The requested date is invalid. "
-                "Ask the customer for another valid date and time."
-            )
 
-        # Reject past dates
-        today = datetime.now().date()
-
-        if requested_date < today:
             lead.site_visit_status = "failed"
 
             return (
                 "APPLICATION BOOKING RESULT: FAILED. "
-                f"The requested date {date} is in the past and cannot be booked. "
+                "The requested date is invalid. "
+                "Ask the customer for another valid future date and time."
+            )
+
+        today = datetime.now().date()
+
+        if requested_date_obj < today:
+
+            lead.site_visit_status = "failed"
+
+            return (
+                "APPLICATION BOOKING RESULT: FAILED. "
+                f"The requested date {requested_date} is in the past "
+                "and cannot be booked. "
                 "Ask the customer for a future date and time."
             )
 
-        # Simulate booking
         result = self.booking.book(
-            date,
-            time,
+            requested_date,
+            requested_time,
         )
 
         if result["success"]:
+
             lead.site_visit_status = "booked"
 
             return (
                 "APPLICATION BOOKING RESULT: SUCCESS. "
-                f"The site visit was booked for {date} at {time}. "
+                f"The site visit was successfully booked for "
+                f"{requested_date} at {requested_time}. "
                 f"Booking ID: {result['booking_id']}. "
-                "Tell the customer the booking succeeded. "
+                "Tell the customer the booking is confirmed. "
+                "Provide the booking ID. "
                 "Do not invent any other booking details."
             )
 
@@ -397,7 +472,7 @@ together and compare the budget with the verified starting price.
         return (
             "APPLICATION BOOKING RESULT: FAILED. "
             "The requested site visit slot is unavailable. "
-            "Tell the customer it could not be booked. "
+            "Tell the customer that the slot could not be booked. "
             "Ask for another future date and time or offer human escalation."
         )
 
@@ -407,9 +482,12 @@ together and compare the budget with the verified starting price.
         text: str,
     ) -> dict[str, Any]:
 
-        session = self.get_session(session_id)
+        session = self.get_session(
+            session_id
+        )
 
         if session.lead.conversation_ended:
+
             return {
                 "session_id": session_id,
                 "reply": (
@@ -445,6 +523,7 @@ together and compare the budget with the verified starting price.
         lower = text.lower()
 
         if session.lead.opted_out:
+
             session.lead.conversation_ended = True
 
         elif any(
@@ -456,6 +535,7 @@ together and compare the budget with the verified starting price.
                 "that is all",
             ]
         ):
+
             session.lead.conversation_ended = True
 
         session.messages.append(
@@ -524,26 +604,31 @@ together and compare the budget with the verified starting price.
             )
 
         if lead.site_visit_status != "not_requested":
+
             parts.append(
                 f"site visit {lead.site_visit_status}"
             )
 
         if lead.interest_level != "unknown":
+
             parts.append(
                 f"{lead.interest_level} interest"
             )
 
         if lead.follow_up_required:
+
             parts.append(
                 "follow-up required"
             )
 
         if lead.human_escalation:
+
             parts.append(
                 "human escalation requested"
             )
 
         if lead.opted_out:
+
             parts.append(
                 "opted out"
             )
